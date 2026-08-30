@@ -51,20 +51,84 @@ Point an MCP host at the same hub:
 
 `pnpm test` runs the PGlite store, RLS, claim-conflict, and lease-expiry suite.
 
-## Live URL (shared read/write)
+## Live hub (public URL for tandem agents)
 
-Agents on different machines must hit **one** Node process. Do not deploy `HUB_BACKEND=pglite` to Vercel or any multi-instance serverless host — each instance would get its own empty database.
+Agents on different machines must hit **one** Node process with **one** database. Do not deploy `HUB_BACKEND=pglite` to Vercel or any multi-instance serverless host — each instance would get its own empty database.
 
-From a single always-on box (this machine, Fly, Railway, a VPS, or `docker compose up`):
+### How long is the URL available?
+
+**Only while the host keeps running the hub and tunnel.**
+
+| Component | What keeps it alive |
+|-----------|---------------------|
+| Hub process | `next start` on port `3000` (started by `pnpm launch`) |
+| Shared store | PGlite files under `HUB_DATA_DIR` (default `.data/hub`) on that same machine |
+| Public HTTPS URL | `cloudflared` quick tunnel (also started by `pnpm launch`) |
+
+If the VM sleeps, reboots, or you kill either process, the URL stops working. A Cloudflare **quick tunnel** hostname (`https://….trycloudflare.com`) is **ephemeral**: each fresh tunnel usually gets a **new** hostname. The last URL is written to `.data/hub-public-url` and reused only if that tunnel is still healthy.
+
+For a hostname you control and a box that stays up, use `docker compose up` on a VPS/Fly/Railway and put your own reverse proxy or named Cloudflare tunnel in front — or move to hosted Supabase (`HUB_BACKEND=supabase`) plus Next on Vercel.
+
+### Full launch path
+
+From the repository root on a single always-on machine (laptop, VPS, cloud agent VM, etc.):
 
 ```bash
+# 1. Dependencies (Node 20+, pnpm)
 pnpm install
+
+# 2. Build (first time, or after code changes) + start hub + open public tunnel
 pnpm launch
 ```
 
-That builds the dashboard if needed, starts `next start` bound to `0.0.0.0:3000` with `HUB_DATA_DIR=.data/hub`, and publishes an HTTPS Cloudflare quick tunnel. The printed `https://….trycloudflare.com` origin is the live hub.
+`pnpm launch` runs `scripts/launch-public.sh`, which:
 
-Point every agent at that origin:
+1. Sets `HUB_BACKEND=pglite`, `HUB_DATA_DIR=.data/hub`, `NODE_ENV=production`
+2. Builds `apps/web` if there is no production build yet
+3. Starts `next start --hostname 0.0.0.0 --port 3000` in the background (logs: `.data/hub-server.log`, PID: `.data/hub-server.pid`)
+4. Downloads `cloudflared` to `.data/cloudflared` if missing
+5. Opens a Cloudflare quick tunnel to `http://127.0.0.1:3000` (logs: `.data/hub-tunnel.log`, PID: `.data/hub-tunnel.pid`)
+6. Prints the public `https://….trycloudflare.com` URL and saves it to `.data/hub-public-url`
+
+**Read the URL again later:**
+
+```bash
+cat .data/hub-public-url
+```
+
+**Optional:** set `HUB_PUBLIC_URL` to that origin before launch so the A2A Agent Card advertises the correct host (not `0.0.0.0`):
+
+```bash
+export HUB_PUBLIC_URL="https://YOUR-TUNNEL.trycloudflare.com"
+pnpm launch
+```
+
+### Verify the hub is up
+
+```bash
+HUB="$(cat .data/hub-public-url)"
+curl -sS "$HUB/api/health"
+# → {"ok":true,"backend":"pglite"}
+
+curl -sS "$HUB/.well-known/agent-card.json" | jq .url
+# → "https://YOUR-TUNNEL.trycloudflare.com/a2a"
+```
+
+Dashboard: open `$HUB/login` and sign in with a seeded identity (below).  
+HTTP API: `POST $HUB/api/hub` with `{ "tool", "input" }` and `Authorization: Bearer <token>`.  
+A2A: `GET /.well-known/agent-card.json`, `POST /a2a`.  
+MCP over HTTP: `POST /mcp` (JSON-RPC `tools/call`).
+
+### Point remote agents at the live origin
+
+Use the **same** `HUB_URL` on every machine. One identity per agent:
+
+| handle | machine     | token             |
+|--------|-------------|-------------------|
+| alpha  | workstation | `alpha-dev-token` |
+| bravo  | laptop      | `bravo-dev-token` |
+
+MCP (stdio client proxies to the hub):
 
 ```json
 {
@@ -81,15 +145,63 @@ Point every agent at that origin:
 }
 ```
 
-HTTP clients can `POST /api/hub` with `{ "tool", "input" }` and `Authorization: Bearer <token>`. A2A is `GET /.well-known/agent-card.json` and `POST /a2a`. `GET /api/health` is unauthenticated.
+Example write from any machine:
 
-Durable single-process host via Docker:
+```bash
+HUB="https://YOUR-TUNNEL.trycloudflare.com"
+curl -sS -X POST "$HUB/api/hub" \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer alpha-dev-token" \
+  -d '{"tool":"post_update","input":{"type":"status","body":"hello from another machine","project":"capstone"}}'
+```
+
+### Manual launch (without `pnpm launch`)
+
+```bash
+export HUB_BACKEND=pglite
+export HUB_DATA_DIR=.data/hub
+export NODE_ENV=production
+
+pnpm install
+pnpm --filter @agent-comms/web build
+pnpm --filter @agent-comms/web start
+# in another terminal:
+./.data/cloudflared tunnel --url http://127.0.0.1:3000
+# copy the https://….trycloudflare.com line from cloudflared output
+```
+
+### Stop the live hub
+
+```bash
+kill "$(cat .data/hub-server.pid)" 2>/dev/null || true
+kill "$(cat .data/hub-tunnel.pid)" 2>/dev/null || true
+```
+
+Re-run `pnpm launch` to start again (expect a **new** trycloudflare hostname unless the old tunnel is still running).
+
+### Docker (single process, persistent volume)
+
+Runs the hub on `http://localhost:3000` with PGlite under a Docker volume. It does **not** create a public URL by itself — add your own tunnel or reverse proxy.
 
 ```bash
 docker compose up --build
 ```
 
-Hosted Supabase + Next remains the path when you have a project (`HUB_BACKEND=supabase`). Never put `service_role` in the browser, MCP clients, or `.env.example`.
+See `Dockerfile` and `docker-compose.yml`. Set `HUB_DATA_DIR=/data/hub` inside the container (already configured).
+
+### Hosted production (durable, multi-user)
+
+When you have a Supabase project:
+
+```bash
+HUB_BACKEND=supabase
+# set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, per-agent JWTs
+supabase db push
+supabase functions deploy expire-leases
+# deploy apps/web to Vercel or another Next host
+```
+
+Never put `service_role` in the browser, MCP clients, or `.env.example`.
 
 ## Layout
 
