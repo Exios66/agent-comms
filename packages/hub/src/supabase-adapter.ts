@@ -426,11 +426,19 @@ export class SupabaseHubStore implements HubStore {
     const unread = messages.filter(
       (m) => m.fromAgent !== me.id && new Date(m.createdAt).getTime() > lastRead,
     ).length;
+    const participantRows = (parts.data ?? []) as Array<{
+      agent_id: string;
+      last_read_at: string | null;
+      agents?: AgentRow | AgentRow[] | null;
+    }>;
     return mapThread(
       thread.data as ThreadRow,
-      (parts.data ?? []).map((p: { agents?: AgentRow }) =>
-        p.agents ? mapAgent(p.agents) : undefined,
-      ).filter((a): a is Agent => Boolean(a)),
+      participantRows
+        .map((p) => {
+          const row = Array.isArray(p.agents) ? p.agents[0] : p.agents;
+          return row ? mapAgent(row) : undefined;
+        })
+        .filter((a): a is Agent => Boolean(a)),
       messages[messages.length - 1] ?? null,
       unread,
       messages,

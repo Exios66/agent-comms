@@ -222,8 +222,18 @@ export class PgliteHubStore implements HubStore {
   async getRecentActivity(actor: HubActor, query: ListQuery = {}): Promise<Post[]> {
     return this.asActor(actor, null, null, async () => {
       const limit = query.limit ?? 50;
+      type ActivityRow = PostRow & {
+        agent_id: string;
+        auth_id: string;
+        handle: string;
+        machine_label: string;
+        agent_project: string;
+        status: AgentRow["status"];
+        last_seen: string;
+        agent_created_at: string;
+      };
       const rows = query.project
-        ? await this.db.query<PostRow & AgentRow & { agent_id: string }>(
+        ? await this.db.query<ActivityRow>(
             `SELECT p.*, a.id AS agent_pk, a.auth_id, a.handle, a.machine_label,
                     a.project AS agent_project, a.status, a.last_seen,
                     a.created_at AS agent_created_at
@@ -234,7 +244,7 @@ export class PgliteHubStore implements HubStore {
              LIMIT $2`,
             [query.project, limit],
           )
-        : await this.db.query<PostRow & Record<string, string>>(
+        : await this.db.query<ActivityRow>(
             `SELECT p.*, a.auth_id, a.handle, a.machine_label,
                     a.project AS agent_project, a.status, a.last_seen,
                     a.created_at AS agent_created_at

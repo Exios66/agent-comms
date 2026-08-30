@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { dispatchHubTool, HubError, hubStatus, isHubError } from "@agent-comms/hub";
+import { dispatchHubTool, hubStatus, isHubError } from "@agent-comms/hub";
 import { z } from "zod";
 import { getRequestToken } from "@/lib/session";
 import { getStore } from "@/lib/store";
@@ -43,8 +43,4 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "internal error";
     return NextResponse.json({ error: "VALIDATION", message }, { status: 400 });
   }
-}
-
-export function hubErrorResponse(error: HubError) {
-  return NextResponse.json(error.toJSON(), { status: hubStatus(error.code) });
 }
