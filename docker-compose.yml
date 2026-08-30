@@ -1,14 +1,36 @@
+# Default: hub only on http://localhost:3000
+# Public tandem agents: docker compose --profile public up --build
+# Or set COMPOSE_PROFILES=public in compose.env (see compose.env.example)
+name: agent-comms
+
 services:
   hub:
     build: .
     ports:
-      - "3000:3000"
+      - "${HUB_PORT:-3000}:3000"
     environment:
       HUB_BACKEND: pglite
       HUB_DATA_DIR: /data/hub
       NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      HUB_PUBLIC_URL: ${HUB_PUBLIC_URL:-}
     volumes:
       - hub-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: [public]
+    depends_on:
+      hub:
+        condition: service_healthy
+    command: tunnel --no-autoupdate --url http://hub:3000
     restart: unless-stopped
 
 volumes:

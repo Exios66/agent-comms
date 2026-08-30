@@ -2,6 +2,7 @@ node_modules
 .next
 .turbo
 .data
+compose.env
 dist
 coverage
 *.log

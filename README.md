@@ -179,15 +179,50 @@ kill "$(cat .data/hub-tunnel.pid)" 2>/dev/null || true
 
 Re-run `pnpm launch` to start again (expect a **new** trycloudflare hostname unless the old tunnel is still running).
 
-### Docker (single process, persistent volume)
+### Docker (Compose profiles)
 
-Runs the hub on `http://localhost:3000` with PGlite under a Docker volume. It does **not** create a public URL by itself — add your own tunnel or reverse proxy.
+Use Docker when you want a persistent hub volume and optional public tunnel without installing Node on the host.
+
+**Setup once:**
 
 ```bash
-docker compose up --build
+cp compose.env.example compose.env
+# compose.env sets COMPOSE_PROFILES=public by default — edit if you only want localhost
 ```
 
-See `Dockerfile` and `docker-compose.yml`. Set `HUB_DATA_DIR=/data/hub` inside the container (already configured).
+| Profile | Command | What runs |
+|---------|---------|-----------|
+| *(default)* | `pnpm docker:up` | Hub on http://localhost:3000 |
+| `public` | `pnpm docker:public` | Hub + Cloudflare quick tunnel for tandem agents |
+
+With `COMPOSE_PROFILES=public` in `compose.env`, plain `pnpm docker:up` also starts the tunnel.
+
+```bash
+pnpm docker:up          # build + start (profiles from compose.env)
+pnpm docker:url         # print https://….trycloudflare.com from tunnel logs
+pnpm docker:logs        # follow hub + tunnel logs
+pnpm docker:down        # stop containers (volume keeps PGlite data)
+```
+
+**Read the public URL:**
+
+```bash
+pnpm docker:url
+# or: cat .data/docker-public-url
+```
+
+The URL stays up while the Docker stack runs (`docker compose ps`). Stopping containers (`pnpm docker:down`) takes it offline. A new tunnel usually gets a new hostname.
+
+**Remote Docker / Docker Desktop:** `scripts/docker-compose.sh` auto-uses `DOCKER_HOST=tcp://127.0.0.1:2375` when a local engine is listening there (common in cloud dev VMs). On your laptop, Docker Desktop’s default socket is used automatically.
+
+**MCP from another machine** (same as bare-metal launch):
+
+```json
+"HUB_URL": "https://YOUR-TUNNEL.trycloudflare.com",
+"HUB_AGENT_TOKEN": "bravo-dev-token"
+```
+
+See `Dockerfile`, `docker-compose.yml`, and `compose.env.example`. PGlite data lives in the `agent-comms_hub-data` Docker volume.
 
 ### Hosted production (durable, multi-user)
 

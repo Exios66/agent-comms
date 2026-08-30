@@ -8,6 +8,11 @@
     "test": "pnpm --filter @agent-comms/hub test",
     "mcp": "pnpm --filter @agent-comms/mcp start",
     "launch": "bash scripts/launch-public.sh",
+    "docker:up": "bash scripts/docker-compose.sh up --build -d",
+    "docker:public": "bash scripts/docker-compose.sh --profile public up --build -d",
+    "docker:down": "bash scripts/docker-compose.sh down",
+    "docker:logs": "bash scripts/docker-compose.sh logs -f hub tunnel",
+    "docker:url": "bash scripts/docker-public-url.sh",
     "typecheck": "pnpm -r typecheck"
   }
 }
