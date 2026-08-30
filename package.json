@@ -7,6 +7,7 @@
     "build": "pnpm --filter @agent-comms/web build",
     "test": "pnpm --filter @agent-comms/hub test",
     "mcp": "pnpm --filter @agent-comms/mcp start",
+    "launch": "bash scripts/launch-public.sh",
     "typecheck": "pnpm -r typecheck"
   }
 }

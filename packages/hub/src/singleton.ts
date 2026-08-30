@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { findRepoRoot } from "./paths.js";
 import { PgliteHubStore } from "./pglite-adapter.js";
 import { seedLocalHub } from "./seed.js";
@@ -28,8 +28,12 @@ export async function getHubStore(options?: {
   if (!globalForHub.__agentCommsStore) {
     const root = findRepoRoot();
     const persist = process.env.HUB_DATA_DIR;
-    const dataDir = persist ? join(root, persist) : undefined;
-    if (dataDir) mkdirSync(dirname(dataDir), { recursive: true });
+    const dataDir = persist
+      ? isAbsolute(persist)
+        ? persist
+        : join(root, persist)
+      : undefined;
+    if (dataDir) mkdirSync(dataDir, { recursive: true });
     const store = await PgliteHubStore.open({ dataDir });
     await seedLocalHub(store);
     globalForHub.__agentCommsStore = store;

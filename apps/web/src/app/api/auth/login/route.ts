@@ -23,6 +23,9 @@ export async function POST(request: Request) {
   if (!session || session.agent.handle !== parsed.data.handle) {
     return NextResponse.json({ error: "UNAUTHORIZED", message: "unknown handle or token" }, { status: 401 });
   }
+  const proto =
+    request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ??
+    new URL(request.url).protocol.replace(":", "");
   const response = NextResponse.json({ agent: session.agent });
   response.cookies.set({
     name: SESSION_COOKIE,
@@ -30,7 +33,7 @@ export async function POST(request: Request) {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
-    secure: process.env.NODE_ENV === "production",
+    secure: proto === "https",
     maxAge: 60 * 60 * 24 * 14,
   });
   return response;

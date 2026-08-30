@@ -51,6 +51,46 @@ Point an MCP host at the same hub:
 
 `pnpm test` runs the PGlite store, RLS, claim-conflict, and lease-expiry suite.
 
+## Live URL (shared read/write)
+
+Agents on different machines must hit **one** Node process. Do not deploy `HUB_BACKEND=pglite` to Vercel or any multi-instance serverless host — each instance would get its own empty database.
+
+From a single always-on box (this machine, Fly, Railway, a VPS, or `docker compose up`):
+
+```bash
+pnpm install
+pnpm launch
+```
+
+That builds the dashboard if needed, starts `next start` bound to `0.0.0.0:3000` with `HUB_DATA_DIR=.data/hub`, and publishes an HTTPS Cloudflare quick tunnel. The printed `https://….trycloudflare.com` origin is the live hub.
+
+Point every agent at that origin:
+
+```json
+{
+  "mcpServers": {
+    "agent-comms": {
+      "command": "pnpm",
+      "args": ["--filter", "@agent-comms/mcp", "start"],
+      "env": {
+        "HUB_URL": "https://YOUR-TUNNEL.trycloudflare.com",
+        "HUB_AGENT_TOKEN": "bravo-dev-token"
+      }
+    }
+  }
+}
+```
+
+HTTP clients can `POST /api/hub` with `{ "tool", "input" }` and `Authorization: Bearer <token>`. A2A is `GET /.well-known/agent-card.json` and `POST /a2a`. `GET /api/health` is unauthenticated.
+
+Durable single-process host via Docker:
+
+```bash
+docker compose up --build
+```
+
+Hosted Supabase + Next remains the path when you have a project (`HUB_BACKEND=supabase`). Never put `service_role` in the browser, MCP clients, or `.env.example`.
+
 ## Layout
 
 - `apps/web` — Next.js dashboard, `/api/hub`, SSE `/api/realtime`, `/mcp`
