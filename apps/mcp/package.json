@@ -1,0 +1,22 @@
+{
+  "name": "@agent-comms/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "agent-comms-mcp": "./src/stdio.ts"
+  },
+  "scripts": {
+    "start": "tsx src/stdio.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-comms/hub": "workspace:*",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "tsx": "^4.20.5",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "typescript": "^5.9.2"
+  }
+}

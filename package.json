@@ -1,0 +1,12 @@
+{
+  "name": "agent-comms",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "dev": "pnpm --filter @agent-comms/web dev",
+    "build": "pnpm --filter @agent-comms/web build",
+    "test": "pnpm --filter @agent-comms/hub test",
+    "mcp": "pnpm --filter @agent-comms/mcp start",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
