@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { Agent } from "@agent-comms/hub";
+import type { Agent, Thread } from "@agent-comms/hub";
 import { identity } from "@/lib/format";
-import { logout } from "./hub-client";
+import { HeartbeatBeacon } from "./heartbeat-beacon";
+import { callHub, logout } from "./hub-client";
+import { useHubLive } from "./use-hub-live";
 
 const NAV = [
   { href: "/", label: "Feed" },
   { href: "/tasks", label: "Tasks" },
   { href: "/leases", label: "Leases" },
+  { href: "/messages", label: "Inbox" },
   { href: "/agents", label: "Agents" },
   { href: "/handoffs", label: "Handoffs" },
 ];
@@ -17,16 +21,29 @@ const NAV = [
 export function Shell({
   me,
   project,
+  unread: unreadProp,
   children,
 }: {
   me: Agent;
   project?: string;
+  unread?: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const search = useSearchParams();
   const router = useRouter();
   const currentProject = project ?? search.get("project") ?? "";
+  const [unread, setUnread] = useState(unreadProp ?? 0);
+
+  const refreshUnread = () => {
+    void callHub<Thread[]>("get_inbox", { limit: 80 }).then((threads) => {
+      setUnread(threads.reduce((n, t) => n + t.unread, 0));
+    });
+  };
+  useHubLive(refreshUnread);
+  useEffect(() => {
+    refreshUnread();
+  }, []);
 
   function setProject(next: string) {
     const params = new URLSearchParams(search.toString());
@@ -38,6 +55,7 @@ export function Shell({
 
   return (
     <div className="min-h-screen">
+      <HeartbeatBeacon />
       <header className="sticky top-0 z-20 border-b border-ink-700/80 bg-ink-950/85 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
           <Link href="/" className="font-mono text-sm tracking-tight text-ember">
@@ -56,6 +74,11 @@ export function Shell({
                   }`}
                 >
                   {item.label}
+                  {item.href === "/messages" && unread > 0 ? (
+                    <span className="ml-1 rounded bg-ember/20 px-1 font-mono text-[10px] text-ember">
+                      {unread}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
@@ -80,7 +103,7 @@ export function Shell({
               />
             </label>
             <span className="font-mono text-xs text-lake">{identity(me.handle, me.machineLabel)}</span>
-            <StatusDot status={me.status} />
+            <StatusDot status={me.status} online={me.online} />
             <button
               type="button"
               onClick={() => void logout()}
@@ -96,13 +119,13 @@ export function Shell({
   );
 }
 
-export function StatusDot({ status }: { status: Agent["status"] }) {
+export function StatusDot({ status, online }: { status: Agent["status"]; online?: boolean }) {
   const color =
     status === "working" ? "bg-ember" : status === "blocked" ? "bg-rose" : "bg-mist-500";
   return (
     <span className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wide text-mist-400">
-      <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
-      {status}
+      <span className={`h-1.5 w-1.5 rounded-full ${online === false ? "bg-ink-600" : color}`} />
+      {online === false ? "offline" : status}
     </span>
   );
 }

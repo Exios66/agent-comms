@@ -7,14 +7,21 @@ import {
   mapAgent,
   mapHandoff,
   mapLease,
+  mapMention,
+  mapMessage,
   mapPost,
   mapTask,
+  mapThread,
   type AgentRow,
   type HandoffRow,
   type LeaseRow,
+  type MentionRow,
+  type MessageRow,
   type PostRow,
   type TaskRow,
+  type ThreadRow,
 } from "./mappers.js";
+import { extractMentions } from "./mentions.js";
 import { mapPgError } from "./pg-errors.js";
 import { findRepoRoot, migrationsDir } from "./paths.js";
 import { HubRealtime } from "./realtime.js";
@@ -29,11 +36,14 @@ import type {
   HubActor,
   LeaseFileInput,
   ListQuery,
+  Mention,
   Post,
   PostUpdateInput,
   RegisterAgentInput,
+  SendMessageInput,
   Session,
   Task,
+  Thread,
 } from "./types.js";
 
 const PGLITE_BOOTSTRAP_SQL = `
@@ -203,7 +213,9 @@ export class PgliteHubStore implements HubStore {
           input.relatedFiles ?? [],
         ],
       );
-      return mapPost(required(inserted.rows[0], "post"), agent);
+      const post = mapPost(required(inserted.rows[0], "post"), agent);
+      await this.recordMentions(extractMentions(input.body), { postId: post.id });
+      return post;
     });
   }
 
@@ -466,10 +478,10 @@ export class PgliteHubStore implements HubStore {
       }
 
       const inserted = await this.db.query<HandoffRow>(
-        `INSERT INTO public.handoffs (from_agent, to_agent, task_id, context_summary)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO public.handoffs (from_agent, to_agent, task_id, context_summary, project)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING *`,
-        [from.id, to.id, input.taskId ?? null, input.contextSummary],
+        [from.id, to.id, input.taskId ?? null, input.contextSummary, from.project],
       );
       return mapHandoff(required(inserted.rows[0], "handoff"), from, to, task);
     });
@@ -477,11 +489,27 @@ export class PgliteHubStore implements HubStore {
 
   async getHandoffs(actor: HubActor, query: ListQuery = {}): Promise<Handoff[]> {
     return this.asActor(actor, null, null, async () => {
+      const me = await this.requireCurrentAgent();
       const limit = query.limit ?? 50;
-      const rows = await this.db.query<HandoffRow>(
-        `SELECT * FROM public.handoffs ORDER BY created_at DESC LIMIT $1`,
-        [limit],
-      );
+      const inbox = query.inbox === true;
+      const rows = query.project
+        ? await this.db.query<HandoffRow>(
+            inbox
+              ? `SELECT * FROM public.handoffs
+                 WHERE project = $1 AND to_agent = $2
+                 ORDER BY created_at DESC LIMIT $3`
+              : `SELECT * FROM public.handoffs
+                 WHERE project = $1
+                 ORDER BY created_at DESC LIMIT $2`,
+            inbox ? [query.project, me.id, limit] : [query.project, limit],
+          )
+        : await this.db.query<HandoffRow>(
+            inbox
+              ? `SELECT * FROM public.handoffs WHERE to_agent = $1
+                 ORDER BY created_at DESC LIMIT $2`
+              : `SELECT * FROM public.handoffs ORDER BY created_at DESC LIMIT $1`,
+            inbox ? [me.id, limit] : [limit],
+          );
       const agents = await this.agentMap();
       const tasks = await this.taskMap();
       return rows.rows.map((row) =>
@@ -492,6 +520,101 @@ export class PgliteHubStore implements HubStore {
           row.task_id ? tasks.get(row.task_id) ?? null : null,
         ),
       );
+    });
+  }
+
+  async sendMessage(actor: HubActor, input: SendMessageInput): Promise<Thread> {
+    return this.asActor(actor, "messages", "INSERT", async () => {
+      const from = await this.requireCurrentAgent();
+      const kind = input.kind ?? (input.threadId ? "reply" : "message");
+      let threadId = input.threadId;
+      if (!threadId) {
+        if (!input.toHandle) throw new HubError("VALIDATION", "toHandle or threadId is required");
+        const to = await this.requireHandle(input.toHandle);
+        if (to.id === from.id) throw new HubError("VALIDATION", "cannot message yourself");
+        threadId = await this.findOrCreateDm(from, to, input.project ?? from.project, input.subject ?? "");
+      } else {
+        const allowed = await this.db.query<{ agent_id: string }>(
+          `SELECT agent_id FROM public.thread_participants WHERE thread_id = $1 AND agent_id = $2`,
+          [threadId, from.id],
+        );
+        if (!allowed.rows[0]) throw new HubError("FORBIDDEN", "you are not in this thread");
+      }
+      const inserted = await this.db.query<MessageRow>(
+        `INSERT INTO public.messages (thread_id, from_agent, kind, body)
+         VALUES ($1, $2, $3, $4)
+         RETURNING *`,
+        [threadId, from.id, kind, input.body],
+      );
+      await this.db.query(
+        `UPDATE public.message_threads SET updated_at = now() WHERE id = $1`,
+        [threadId],
+      );
+      await this.recordMentions(extractMentions(input.body), { messageId: inserted.rows[0]?.id });
+      return this.loadThread(threadId, from.id);
+    });
+  }
+
+  async getInbox(actor: HubActor, query: ListQuery = {}): Promise<Thread[]> {
+    return this.asActor(actor, null, null, async () => {
+      const me = await this.requireCurrentAgent();
+      const limit = query.limit ?? 50;
+      const rows = query.project
+        ? await this.db.query<ThreadRow>(
+            `SELECT t.* FROM public.message_threads t
+             JOIN public.thread_participants p ON p.thread_id = t.id
+             WHERE p.agent_id = $1 AND t.project = $2
+             ORDER BY t.updated_at DESC LIMIT $3`,
+            [me.id, query.project, limit],
+          )
+        : await this.db.query<ThreadRow>(
+            `SELECT t.* FROM public.message_threads t
+             JOIN public.thread_participants p ON p.thread_id = t.id
+             WHERE p.agent_id = $1
+             ORDER BY t.updated_at DESC LIMIT $2`,
+            [me.id, limit],
+          );
+      const threads: Thread[] = [];
+      for (const row of rows.rows) {
+        const thread = await this.loadThread(row.id, me.id);
+        if (query.unreadOnly && thread.unread === 0) continue;
+        threads.push(thread);
+      }
+      return threads;
+    });
+  }
+
+  async getThread(actor: HubActor, threadId: string): Promise<Thread> {
+    return this.asActor(actor, null, null, async () => {
+      const me = await this.requireCurrentAgent();
+      return this.loadThread(threadId, me.id);
+    });
+  }
+
+  async markThreadRead(actor: HubActor, threadId: string): Promise<Thread> {
+    return this.asActor(actor, "message_threads", "UPDATE", async () => {
+      const me = await this.requireCurrentAgent();
+      const updated = await this.db.query(
+        `UPDATE public.thread_participants
+         SET last_read_at = now()
+         WHERE thread_id = $1 AND agent_id = $2
+         RETURNING thread_id`,
+        [threadId, me.id],
+      );
+      if (!updated.rows[0]) throw new HubError("FORBIDDEN", "you are not in this thread");
+      return this.loadThread(threadId, me.id);
+    });
+  }
+
+  async listMentions(actor: HubActor, query: ListQuery = {}): Promise<Mention[]> {
+    return this.asActor(actor, null, null, async () => {
+      const me = await this.requireCurrentAgent();
+      const limit = query.limit ?? 50;
+      const rows = await this.db.query<MentionRow>(
+        `SELECT * FROM public.mentions WHERE agent_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [me.id, limit],
+      );
+      return rows.rows.map(mapMention);
     });
   }
 
@@ -584,9 +707,112 @@ export class PgliteHubStore implements HubStore {
     const rows = await this.db.query<TaskRow>(`SELECT * FROM public.tasks`);
     return new Map(rows.rows.map((row) => [row.id, mapTask(row)]));
   }
+
+  private async requireHandle(handle: string): Promise<Agent> {
+    const rows = await this.db.query<AgentRow>(`SELECT * FROM public.agents WHERE handle = $1`, [
+      handle,
+    ]);
+    if (!rows.rows[0]) throw new HubError("NOT_FOUND", `agent ${handle} not found`);
+    return mapAgent(rows.rows[0]);
+  }
+
+  private async findOrCreateDm(
+    from: Agent,
+    to: Agent,
+    project: string,
+    subject: string,
+  ): Promise<string> {
+    const existing = await this.db.query<{ id: string }>(
+      `SELECT t.id
+       FROM public.message_threads t
+       WHERE t.project = $3
+         AND (SELECT count(*) FROM public.thread_participants p WHERE p.thread_id = t.id) = 2
+         AND EXISTS (
+           SELECT 1 FROM public.thread_participants p WHERE p.thread_id = t.id AND p.agent_id = $1
+         )
+         AND EXISTS (
+           SELECT 1 FROM public.thread_participants p WHERE p.thread_id = t.id AND p.agent_id = $2
+         )
+       LIMIT 1`,
+      [from.id, to.id, project],
+    );
+    if (existing.rows[0]) return existing.rows[0].id;
+
+    const created = await this.db.query<ThreadRow>(
+      `INSERT INTO public.message_threads (project, subject, created_by)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [project, subject, from.id],
+    );
+    const threadId = required(created.rows[0], "thread").id;
+    await this.db.query(
+      `INSERT INTO public.thread_participants (thread_id, agent_id) VALUES ($1, $2), ($1, $3)`,
+      [threadId, from.id, to.id],
+    );
+    return threadId;
+  }
+
+  private async loadThread(threadId: string, viewerId: string): Promise<Thread> {
+    const threadRows = await this.db.query<ThreadRow>(
+      `SELECT * FROM public.message_threads WHERE id = $1`,
+      [threadId],
+    );
+    const row = threadRows.rows[0];
+    if (!row) throw new HubError("NOT_FOUND", "thread not found");
+    const part = await this.db.query<{ agent_id: string; last_read_at: string | null }>(
+      `SELECT agent_id, last_read_at FROM public.thread_participants WHERE thread_id = $1`,
+      [threadId],
+    );
+    if (!part.rows.some((p) => p.agent_id === viewerId)) {
+      throw new HubError("FORBIDDEN", "you are not in this thread");
+    }
+    const mine = part.rows.find((p) => p.agent_id === viewerId);
+    const agents = await this.agentMap();
+    const messages = await this.db.query<MessageRow>(
+      `SELECT * FROM public.messages WHERE thread_id = $1 ORDER BY created_at ASC`,
+      [threadId],
+    );
+    const mapped = messages.rows.map((m) => mapMessage(m, agents.get(m.from_agent)));
+    const lastRead = mine?.last_read_at ? new Date(mine.last_read_at).getTime() : 0;
+    const unread = mapped.filter(
+      (m) => m.fromAgent !== viewerId && new Date(m.createdAt).getTime() > lastRead,
+    ).length;
+    return mapThread(
+      row,
+      part.rows.map((p) => agents.get(p.agent_id)).filter((a): a is Agent => Boolean(a)),
+      mapped[mapped.length - 1] ?? null,
+      unread,
+      mapped,
+    );
+  }
+
+  private async recordMentions(
+    handles: string[],
+    ref: { postId?: string; messageId?: string },
+  ): Promise<void> {
+    for (const handle of handles) {
+      const agent = await this.db.query<AgentRow>(
+        `SELECT * FROM public.agents WHERE handle = $1`,
+        [handle],
+      );
+      if (!agent.rows[0]) continue;
+      await this.db.query(
+        `INSERT INTO public.mentions (agent_id, post_id, message_id) VALUES ($1, $2, $3)`,
+        [agent.rows[0].id, ref.postId ?? null, ref.messageId ?? null],
+      );
+    }
+  }
 }
 
-type HubChangeTable = "agents" | "posts" | "tasks" | "file_leases" | "handoffs";
+type HubChangeTable =
+  | "agents"
+  | "posts"
+  | "tasks"
+  | "file_leases"
+  | "handoffs"
+  | "messages"
+  | "message_threads"
+  | "mentions";
 
 function required<T>(value: T | undefined, label: string): T {
   if (!value) throw new HubError("NOT_FOUND", `${label} not found`);

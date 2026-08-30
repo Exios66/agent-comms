@@ -124,3 +124,43 @@ describe("handoffs and tools", () => {
     expect((post as { body: string }).body).toBe("Tool path works.");
   });
 });
+
+describe("pings, threads, mentions", () => {
+  it("seeds a ping thread and @mention", async () => {
+    const bravo = (await store!.authenticate("bravo-dev-token"))!;
+    const inbox = await store!.getInbox(bravo.actor);
+    expect(inbox.length).toBeGreaterThanOrEqual(1);
+    expect(inbox[0]?.unread).toBeGreaterThan(0);
+    const mentions = await store!.listMentions(bravo.actor);
+    expect(mentions.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("replies and marks a thread read", async () => {
+    const alpha = (await store!.authenticate("alpha-dev-token"))!;
+    const bravo = (await store!.authenticate("bravo-dev-token"))!;
+    const sent = await store!.sendMessage(alpha.actor, {
+      toHandle: "bravo",
+      kind: "ping",
+      body: "Are you on the lease sweep?",
+    });
+    expect(sent.participants.map((p) => p.handle).sort()).toEqual(["alpha", "bravo"]);
+    await store!.sendMessage(bravo.actor, {
+      threadId: sent.id,
+      kind: "reply",
+      body: "On it. Holding off on page.tsx.",
+    });
+    const unread = await store!.getInbox(alpha.actor, { unreadOnly: true });
+    expect(unread.some((t) => t.id === sent.id && t.unread > 0)).toBe(true);
+    const read = await store!.markThreadRead(alpha.actor, sent.id);
+    expect(read.unread).toBe(0);
+  });
+
+  it("forbids reading a thread you are not in", async () => {
+    const alpha = (await store!.authenticate("alpha-dev-token"))!;
+    const thread = await store!.sendMessage(alpha.actor, {
+      toHandle: "bravo",
+      body: "private note",
+    });
+    await expect(store!.getThread({ authId: "00000000-0000-0000-0000-000000000000" }, thread.id)).rejects.toBeTruthy();
+  });
+});

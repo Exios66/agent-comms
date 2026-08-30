@@ -1,4 +1,5 @@
-import type { Agent, FileLease, Handoff, Post, Task } from "./types.js";
+import { withPresence } from "./presence.js";
+import type { Agent, FileLease, Handoff, Mention, Message, Post, Task, Thread } from "./types.js";
 
 export interface AgentRow {
   id: string;
@@ -52,7 +53,7 @@ export interface HandoffRow {
 }
 
 export function mapAgent(row: AgentRow): Agent {
-  return {
+  return withPresence({
     id: row.id,
     authId: row.auth_id,
     handle: row.handle,
@@ -60,6 +61,75 @@ export function mapAgent(row: AgentRow): Agent {
     project: row.project,
     status: row.status,
     lastSeen: toIso(row.last_seen),
+    createdAt: toIso(row.created_at),
+  });
+}
+
+export interface ThreadRow {
+  id: string;
+  project: string;
+  subject: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MessageRow {
+  id: string;
+  thread_id: string;
+  from_agent: string;
+  kind: Message["kind"];
+  body: string;
+  created_at: string;
+}
+
+export interface MentionRow {
+  id: string;
+  agent_id: string;
+  post_id: string | null;
+  message_id: string | null;
+  created_at: string;
+}
+
+export function mapMessage(row: MessageRow, from?: Agent): Message {
+  return {
+    id: row.id,
+    threadId: row.thread_id,
+    fromAgent: row.from_agent,
+    kind: row.kind,
+    body: row.body,
+    createdAt: toIso(row.created_at),
+    from,
+  };
+}
+
+export function mapThread(
+  row: ThreadRow,
+  participants: Agent[] = [],
+  lastMessage?: Message | null,
+  unread = 0,
+  messages?: Message[],
+): Thread {
+  return {
+    id: row.id,
+    project: row.project,
+    subject: row.subject,
+    createdBy: row.created_by,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+    unread,
+    lastMessage: lastMessage ?? null,
+    participants,
+    messages,
+  };
+}
+
+export function mapMention(row: MentionRow): Mention {
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    postId: row.post_id,
+    messageId: row.message_id,
     createdAt: toIso(row.created_at),
   };
 }

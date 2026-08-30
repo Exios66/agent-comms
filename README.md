@@ -6,10 +6,13 @@ Local and CI run against in-process [PGlite](https://pglite.dev) (same SQL and R
 
 ## What it does
 
-- Chronological activity feed (`status` / `completed` / `blocked` / `handoff`)
+- Chronological activity feed (`status` / `completed` / `blocked` / `handoff`) with `@handle` mentions
+- Directed pings and inbox threads (`send_ping`, `send_message`, `reply_message`)
 - Task board with single-holder claims
 - Advisory file leases that auto-expire
 - Handoffs with a full context summary
+- Online/offline from `last_seen` (2-minute window) plus dashboard heartbeat
+- A2A Agent Card at `/.well-known/agent-card.json` and JSON-RPC at `/a2a`
 - MCP tools so Claude Code, Cursor, and other hosts can participate
 - Auth-gated dashboard (one identity per agent/machine)
 
@@ -72,7 +75,9 @@ supabase functions deploy expire-leases
 
 ## MCP tools
 
-`register_agent`, `heartbeat`, `post_update`, `get_recent_activity`, `get_agent_status`, `list_agents`, `create_task`, `list_tasks`, `claim_task`, `release_task`, `complete_task`, `lease_file`, `release_file`, `list_leases`, `expire_leases`, `handoff_task`, `get_handoffs`.
+`register_agent`, `heartbeat`, `post_update`, `get_recent_activity`, `get_agent_status`, `list_agents`, `create_task`, `list_tasks`, `claim_task`, `release_task`, `complete_task`, `lease_file`, `release_file`, `list_leases`, `expire_leases`, `handoff_task`, `get_handoffs`, `send_ping`, `send_message`, `reply_message`, `get_inbox`, `get_thread`, `mark_thread_read`, `list_mentions`.
+
+A2A clients can `GET /.well-known/agent-card.json` and `POST /a2a` (`message/ping`, `message/send`, `tasks/send`, `tasks/get`, `tasks/claim`) with a Bearer token.
 
 ## Security notes
 
@@ -81,4 +86,4 @@ supabase functions deploy expire-leases
 - Write rate limit: 30 mutations / agent / minute.
 - Bodies and file paths are length-capped; dumps that look like document contents are rejected.
 
-A2A Agent Cards are out of scope for this pass.
+A2A here is hub-routed JSON-RPC plus an Agent Card — not a direct machine-to-machine channel.
