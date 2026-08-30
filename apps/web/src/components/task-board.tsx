@@ -55,17 +55,7 @@ export function TaskBoard({
           <h1 className="text-2xl font-medium">Task board</h1>
           <p className="text-sm text-mist-400">Claim before you start. One holder at a time.</p>
         </div>
-        <form
-          className="flex flex-wrap gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!title.trim()) return;
-            void act("create_task", { title, description, project }).then(() => {
-              setTitle("");
-              setDescription("");
-            });
-          }}
-        >
+        <div className="flex flex-wrap gap-2">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -78,10 +68,20 @@ export function TaskBoard({
             placeholder="optional description"
             className="w-64 rounded-md border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm"
           />
-          <button className="rounded-md bg-ember px-3 py-1.5 text-sm font-medium text-ink-950">
+          <button
+            type="button"
+            onClick={() => {
+              if (!title.trim()) return;
+              void act("create_task", { title, description, project }).then(() => {
+                setTitle("");
+                setDescription("");
+              });
+            }}
+            className="rounded-md bg-ember px-3 py-1.5 text-sm font-medium text-ink-950"
+          >
             add
           </button>
-        </form>
+        </div>
       </div>
       <ErrorBanner message={error} />
       <div className="grid gap-4 md:grid-cols-3">
@@ -106,7 +106,8 @@ export function TaskBoard({
                         : "unclaimed"}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {task.status === "open" ? (
+                      {task.status === "open" ||
+                      (task.status === "claimed" && task.claimedBy !== meId) ? (
                         <button
                           type="button"
                           onClick={() => void act("claim_task", { taskId: task.id })}

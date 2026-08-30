@@ -31,7 +31,14 @@ export class HubError extends Error {
 }
 
 export function isHubError(error: unknown): error is HubError {
-  return error instanceof HubError;
+  if (error instanceof HubError) return true;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: string }).name === "HubError" &&
+    typeof (error as { code?: unknown }).code === "string" &&
+    typeof (error as { message?: unknown }).message === "string"
+  );
 }
 
 export function hubStatus(code: HubErrorCode): number {

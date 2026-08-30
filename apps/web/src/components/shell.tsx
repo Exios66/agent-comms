@@ -65,7 +65,11 @@ export function Shell({
               project
               <input
                 defaultValue={currentProject}
-                onBlur={(e) => setProject(e.target.value.trim())}
+                onBlur={(e) => {
+                  const next = e.target.value.trim();
+                  setProject(!next || next === "all" || next === "*" ? "" : next);
+                  if (!next || next === "all" || next === "*") e.target.value = "";
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.currentTarget.blur();
@@ -131,7 +135,10 @@ export function TypeBadge({ type }: { type: string }) {
 export function ErrorBanner({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <div className="mb-4 rounded-md border border-rose/40 bg-rose/10 px-3 py-2 text-sm text-rose">
+    <div
+      role="alert"
+      className="sticky top-14 z-10 mb-4 rounded-md border border-rose/40 bg-rose/15 px-3 py-2 text-sm text-rose"
+    >
       {message}
     </div>
   );

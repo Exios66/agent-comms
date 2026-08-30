@@ -59,14 +59,7 @@ export function LeaseBoard({
         </div>
       ) : null}
       <ErrorBanner message={error} />
-      <form
-        className="mb-6 flex flex-wrap gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!filePath.trim()) return;
-          void act("lease_file", { filePath, project, ttlSeconds: ttl });
-        }}
-      >
+      <div className="mb-6 flex flex-wrap gap-2">
         <input
           value={filePath}
           onChange={(e) => setFilePath(e.target.value)}
@@ -81,7 +74,22 @@ export function LeaseBoard({
           onChange={(e) => setTtl(Number(e.target.value))}
           className="w-28 rounded-md border border-ink-600 bg-ink-900 px-2 py-1.5 font-mono text-sm"
         />
-        <button className="rounded-md bg-ember px-3 py-1.5 text-sm font-medium text-ink-950">
+        <button
+          type="button"
+          onClick={() => {
+            const path = filePath.trim();
+            if (!path) return;
+            const held = leases.find((lease) => lease.filePath === path);
+            if (held && held.heldBy !== meId) {
+              setError(
+                `file leased by ${identity(held.holder?.handle, held.holder?.machineLabel)} until ${held.expiresAt}`,
+              );
+              return;
+            }
+            void act("lease_file", { filePath: path, project, ttlSeconds: ttl });
+          }}
+          className="rounded-md bg-ember px-3 py-1.5 text-sm font-medium text-ink-950"
+        >
           lease
         </button>
         <button
@@ -91,7 +99,7 @@ export function LeaseBoard({
         >
           sweep expired
         </button>
-      </form>
+      </div>
       {leases.length === 0 ? (
         <EmptyState title="No active leases" body="Lease a path before editing so the other agent backs off." />
       ) : (
