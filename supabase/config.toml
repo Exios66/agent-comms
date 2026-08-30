@@ -1,0 +1,4 @@
+project_id = "agent-comms"
+
+[functions.expire-leases]
+verify_jwt = false

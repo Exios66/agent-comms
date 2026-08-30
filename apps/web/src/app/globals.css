@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #0b0d11;
+  color: #e8eaed;
+  min-height: 100%;
+}
+
+body {
+  font-feature-settings: "ss01" on, "kern" on;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a4254;
+  border-radius: 999px;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
