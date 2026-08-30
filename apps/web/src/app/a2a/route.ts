@@ -8,6 +8,7 @@ import {
 } from "@agent-comms/hub";
 import { getRequestToken } from "@/lib/session";
 import { getStore } from "@/lib/store";
+import { publicOrigin } from "@/lib/public-origin";
 
 export const runtime = "nodejs";
 
@@ -46,8 +47,7 @@ const METHOD_TO_TOOL: Record<string, { tool: string; map?: (params: Record<strin
 };
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  return NextResponse.json(buildAgentCard(`${url.protocol}//${url.host}`));
+  return NextResponse.json(buildAgentCard(publicOrigin(request)));
 }
 
 export async function POST(request: Request) {
@@ -67,11 +67,10 @@ export async function POST(request: Request) {
   } | null;
 
   if (body?.method === "agent/getAuthenticatedExtendedCard" || body?.method === "card/get") {
-    const url = new URL(request.url);
     return NextResponse.json({
       jsonrpc: "2.0",
       id: body.id ?? null,
-      result: buildAgentCard(`${url.protocol}//${url.host}`),
+      result: buildAgentCard(publicOrigin(request)),
     });
   }
 

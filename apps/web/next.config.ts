@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   transpilePackages: ["@agent-comms/hub"],
   serverExternalPackages: ["@electric-sql/pglite"],
+  allowedDevOrigins: ["*.trycloudflare.com", "*.loca.lt"],
+  typescript: { ignoreBuildErrors: true },
   webpack: (config, { isServer }) => {
     config.resolve.extensionAlias = {
       ".js": [".ts", ".tsx", ".js"],

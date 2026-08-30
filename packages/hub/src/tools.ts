@@ -151,7 +151,10 @@ export async function dispatchHubTool(
     case "get_handoffs":
       return store.getHandoffs(actor, input as never);
     case "send_ping":
-      return store.sendMessage(actor, { ...(input as never), kind: "ping" });
+      return store.sendMessage(actor, {
+        ...(input as Record<string, unknown>),
+        kind: "ping",
+      } as never);
     case "send_message":
       return store.sendMessage(actor, input as never);
     case "reply_message":
