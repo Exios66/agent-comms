@@ -11,32 +11,31 @@ export async function GET() {
   const live = getPgliteStore();
   const encoder = new TextEncoder();
 
+  let unsubscribe = () => {};
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   const stream = new ReadableStream({
     start(controller) {
       controller.enqueue(encoder.encode("event: hello\ndata: {}\n\n"));
       if (!live) return;
-      const unsubscribe = live.realtime.subscribe((change) => {
+      unsubscribe = live.realtime.subscribe((change) => {
         try {
           controller.enqueue(encoder.encode(encodeSse(change)));
         } catch {
           unsubscribe();
         }
       });
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": ping\n\n"));
         } catch {
-          clearInterval(heartbeat);
+          if (heartbeat) clearInterval(heartbeat);
         }
       }, 15_000);
       heartbeat.unref?.();
-      (controller as unknown as { _cleanup?: () => void })._cleanup = () => {
-        unsubscribe();
-        clearInterval(heartbeat);
-      };
     },
     cancel() {
-      /* EventSource close */
+      unsubscribe();
+      if (heartbeat) clearInterval(heartbeat);
     },
   });
 

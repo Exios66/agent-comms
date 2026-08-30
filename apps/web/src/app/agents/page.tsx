@@ -33,7 +33,7 @@ export default async function AgentsPage({
                 className="flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-ink-800/50"
               >
                 <span className="font-mono text-lake">{identity(agent.handle, agent.machineLabel)}</span>
-                <StatusDot status={agent.status} />
+                <StatusDot status={agent.status} online={agent.online} />
                 <span className="text-xs text-mist-500">{agent.project}</span>
                 <span className="ml-auto text-xs text-mist-500">seen {relativeTime(agent.lastSeen)}</span>
               </Link>

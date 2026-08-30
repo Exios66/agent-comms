@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Post, PostType } from "@agent-comms/hub";
 import { identity, relativeTime } from "@/lib/format";
 import { callHub } from "./hub-client";
+import { MentionText } from "./mention-text";
 import { EmptyState, ErrorBanner, TypeBadge } from "./shell";
 import { useHubLive } from "./use-hub-live";
 
@@ -70,7 +71,9 @@ export function FeedView({ initial, project }: { initial: Post[]; project?: stri
                     {relativeTime(post.createdAt)}
                   </span>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{post.body}</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+                  <MentionText text={post.body} />
+                </p>
                 {post.relatedFiles.length > 0 ? (
                   <ul className="mt-2 flex flex-wrap gap-1">
                     {post.relatedFiles.map((file) => (

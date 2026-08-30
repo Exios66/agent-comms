@@ -15,6 +15,7 @@ export interface Agent {
   status: AgentStatus;
   lastSeen: string;
   createdAt: string;
+  online?: boolean;
 }
 
 export interface Post {
@@ -70,8 +71,49 @@ export interface Session {
 
 export type HubEventType = "INSERT" | "UPDATE" | "DELETE";
 
+export type MessageKind = "ping" | "message" | "reply";
+
+export interface Message {
+  id: string;
+  threadId: string;
+  fromAgent: string;
+  kind: MessageKind;
+  body: string;
+  createdAt: string;
+  from?: Agent;
+}
+
+export interface Thread {
+  id: string;
+  project: string;
+  subject: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  unread: number;
+  lastMessage?: Message | null;
+  participants: Agent[];
+  messages?: Message[];
+}
+
+export interface Mention {
+  id: string;
+  agentId: string;
+  postId: string | null;
+  messageId: string | null;
+  createdAt: string;
+}
+
 export interface HubChange {
-  table: "agents" | "posts" | "tasks" | "file_leases" | "handoffs";
+  table:
+    | "agents"
+    | "posts"
+    | "tasks"
+    | "file_leases"
+    | "handoffs"
+    | "messages"
+    | "message_threads"
+    | "mentions";
   eventType: HubEventType;
   row?: Record<string, unknown>;
 }
@@ -113,7 +155,18 @@ export interface HandoffTaskInput {
   taskId?: string;
 }
 
+export interface SendMessageInput {
+  toHandle?: string;
+  threadId?: string;
+  body: string;
+  subject?: string;
+  project?: string;
+  kind?: MessageKind;
+}
+
 export interface ListQuery {
   project?: string;
   limit?: number;
+  unreadOnly?: boolean;
+  inbox?: boolean;
 }

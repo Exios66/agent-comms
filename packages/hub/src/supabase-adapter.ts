@@ -4,13 +4,19 @@ import {
   mapAgent,
   mapHandoff,
   mapLease,
+  mapMention,
+  mapMessage,
   mapPost,
   mapTask,
+  mapThread,
   type AgentRow,
   type HandoffRow,
   type LeaseRow,
+  type MentionRow,
+  type MessageRow,
   type PostRow,
   type TaskRow,
+  type ThreadRow,
 } from "./mappers.js";
 import { DEFAULT_LEASE_TTL_SECONDS, type HubStore } from "./store.js";
 import type {
@@ -23,11 +29,14 @@ import type {
   HubActor,
   LeaseFileInput,
   ListQuery,
+  Mention,
   Post,
   PostUpdateInput,
   RegisterAgentInput,
+  SendMessageInput,
   Session,
   Task,
+  Thread,
 } from "./types.js";
 
 export interface SupabaseHubOptions {
@@ -49,8 +58,8 @@ export function createSupabaseHub(options: SupabaseHubOptions): SupabaseHubStore
 export class SupabaseHubStore implements HubStore {
   constructor(private readonly sb: SupabaseClient) {}
 
-  async authenticate(_token: string): Promise<Session | null> {
-    const { data, error } = await this.sb.auth.getUser();
+  async authenticate(token: string): Promise<Session | null> {
+    const { data, error } = await this.sb.auth.getUser(token);
     if (error || !data.user) return null;
     const agent = await this.loadAgentByAuth(data.user.id);
     if (!agent) return null;
@@ -303,6 +312,7 @@ export class SupabaseHubStore implements HubStore {
         to_agent: to.id,
         task_id: input.taskId ?? null,
         context_summary: input.contextSummary,
+        project: from.project,
       })
       .select("*")
       .single();
@@ -310,14 +320,144 @@ export class SupabaseHubStore implements HubStore {
     return mapHandoff(data as HandoffRow, from, to);
   }
 
-  async getHandoffs(_actor: HubActor, query: ListQuery = {}): Promise<Handoff[]> {
-    const { data, error } = await this.sb
+  async getHandoffs(actor: HubActor, query: ListQuery = {}): Promise<Handoff[]> {
+    const me = await this.requireAgent(actor);
+    let req = this.sb
       .from("handoffs")
+      .select("*, from:agents!from_agent(*), to:agents!to_agent(*), task:tasks(*)")
+      .order("created_at", { ascending: false })
+      .limit(query.limit ?? 50);
+    if (query.project) req = req.eq("project", query.project);
+    if (query.inbox) req = req.eq("to_agent", me.id);
+    const { data, error } = await req;
+    throwIf(error);
+    return (
+      data as Array<HandoffRow & { from: AgentRow; to: AgentRow; task: TaskRow | null }>
+    ).map((row) =>
+      mapHandoff(
+        row,
+        row.from ? mapAgent(row.from) : undefined,
+        row.to ? mapAgent(row.to) : undefined,
+        row.task ? mapTask(row.task) : null,
+      ),
+    );
+  }
+
+  async sendMessage(actor: HubActor, input: SendMessageInput): Promise<Thread> {
+    const from = await this.requireAgent(actor);
+    const kind = input.kind ?? (input.threadId ? "reply" : "message");
+    let threadId = input.threadId;
+    if (!threadId) {
+      if (!input.toHandle) throw new HubError("VALIDATION", "toHandle or threadId is required");
+      const to = await this.getAgent(actor, input.toHandle);
+      if (!to) throw new HubError("NOT_FOUND", `agent ${input.toHandle} not found`);
+      const created = await this.sb
+        .from("message_threads")
+        .insert({
+          project: input.project ?? from.project,
+          subject: input.subject ?? "",
+          created_by: from.id,
+        })
+        .select("*")
+        .single();
+      throwIf(created.error);
+      threadId = created.data.id as string;
+      const parts = await this.sb.from("thread_participants").insert([
+        { thread_id: threadId, agent_id: from.id },
+        { thread_id: threadId, agent_id: to.id },
+      ]);
+      throwIf(parts.error);
+    }
+    const inserted = await this.sb
+      .from("messages")
+      .insert({ thread_id: threadId, from_agent: from.id, kind, body: input.body })
       .select("*")
+      .single();
+    throwIf(inserted.error);
+    await this.sb.from("message_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+    return this.getThread(actor, threadId);
+  }
+
+  async getInbox(actor: HubActor, query: ListQuery = {}): Promise<Thread[]> {
+    const me = await this.requireAgent(actor);
+    let req = this.sb
+      .from("thread_participants")
+      .select("thread_id, last_read_at, message_threads(*)")
+      .eq("agent_id", me.id)
+      .limit(query.limit ?? 50);
+    const { data, error } = await req;
+    throwIf(error);
+    const threads: Thread[] = [];
+    for (const row of data as Array<{ thread_id: string }>) {
+      const thread = await this.getThread(actor, row.thread_id);
+      if (query.unreadOnly && thread.unread === 0) continue;
+      if (query.project && thread.project !== query.project) continue;
+      threads.push(thread);
+    }
+    return threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async getThread(actor: HubActor, threadId: string): Promise<Thread> {
+    const me = await this.requireAgent(actor);
+    const thread = await this.sb.from("message_threads").select("*").eq("id", threadId).maybeSingle();
+    throwIf(thread.error);
+    if (!thread.data) throw new HubError("NOT_FOUND", "thread not found");
+    const parts = await this.sb
+      .from("thread_participants")
+      .select("agent_id, last_read_at, agents(*)")
+      .eq("thread_id", threadId);
+    throwIf(parts.error);
+    if (!(parts.data ?? []).some((p: { agent_id: string }) => p.agent_id === me.id)) {
+      throw new HubError("FORBIDDEN", "you are not in this thread");
+    }
+    const msgs = await this.sb
+      .from("messages")
+      .select("*, from:agents!from_agent(*)")
+      .eq("thread_id", threadId)
+      .order("created_at", { ascending: true });
+    throwIf(msgs.error);
+    const mine = (parts.data ?? []).find((p: { agent_id: string }) => p.agent_id === me.id) as
+      | { last_read_at: string | null }
+      | undefined;
+    const lastRead = mine?.last_read_at ? new Date(mine.last_read_at).getTime() : 0;
+    const messages = (msgs.data ?? []).map((row: MessageRow & { from?: AgentRow }) =>
+      mapMessage(row, row.from ? mapAgent(row.from) : undefined),
+    );
+    const unread = messages.filter(
+      (m) => m.fromAgent !== me.id && new Date(m.createdAt).getTime() > lastRead,
+    ).length;
+    return mapThread(
+      thread.data as ThreadRow,
+      (parts.data ?? []).map((p: { agents?: AgentRow }) =>
+        p.agents ? mapAgent(p.agents) : undefined,
+      ).filter((a): a is Agent => Boolean(a)),
+      messages[messages.length - 1] ?? null,
+      unread,
+      messages,
+    );
+  }
+
+  async markThreadRead(actor: HubActor, threadId: string): Promise<Thread> {
+    const me = await this.requireAgent(actor);
+    const { error } = await this.sb
+      .from("thread_participants")
+      .update({ last_read_at: new Date().toISOString() })
+      .eq("thread_id", threadId)
+      .eq("agent_id", me.id);
+    throwIf(error);
+    return this.getThread(actor, threadId);
+  }
+
+  async listMentions(actor: HubActor, query: ListQuery = {}): Promise<Mention[]> {
+    const me = await this.requireAgent(actor);
+    const { data, error } = await this.sb
+      .from("mentions")
+      .select("*")
+      .eq("agent_id", me.id)
       .order("created_at", { ascending: false })
       .limit(query.limit ?? 50);
     throwIf(error);
-    return (data as HandoffRow[]).map((row) => mapHandoff(row));
+    return (data as MentionRow[]).map(mapMention);
   }
 
   private async requireAgent(actor: HubActor): Promise<Agent> {

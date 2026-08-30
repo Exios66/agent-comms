@@ -80,4 +80,23 @@ export async function seedLocalHub(store: PgliteHubStore): Promise<void> {
       taskId: claimable.id,
     },
   );
+
+  await store.postUpdate(
+    { authId: alpha.authId },
+    {
+      type: "status",
+      body: "@bravo ping when you pick up the empty-state copy.",
+      project: "capstone",
+    },
+  );
+  await store.sendMessage(
+    { authId: alpha.authId },
+    {
+      toHandle: "bravo",
+      kind: "ping",
+      body: "Need a second pair of eyes on the feed empty state. @bravo",
+      project: "capstone",
+      subject: "empty-state",
+    },
+  );
 }

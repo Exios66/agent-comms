@@ -3,6 +3,7 @@ import { HubError, hubStatus, isHubError } from "./errors.js";
 import type { HubStore } from "./store.js";
 import type { HubActor } from "./types.js";
 import {
+  bodySchema,
   createTaskSchema,
   handoffTaskSchema,
   heartbeatSchema,
@@ -11,6 +12,9 @@ import {
   listQuerySchema,
   postUpdateSchema,
   registerAgentSchema,
+  sendMessageSchema,
+  sendPingSchema,
+  threadIdInput,
 } from "./validators.js";
 
 export const HUB_TOOL_NAMES = [
@@ -31,6 +35,13 @@ export const HUB_TOOL_NAMES = [
   "expire_leases",
   "handoff_task",
   "get_handoffs",
+  "send_ping",
+  "send_message",
+  "reply_message",
+  "get_inbox",
+  "get_thread",
+  "mark_thread_read",
+  "list_mentions",
 ] as const;
 
 export type HubToolName = (typeof HUB_TOOL_NAMES)[number];
@@ -57,6 +68,13 @@ export const hubToolSchemas: Record<HubToolName, z.ZodType> = {
   expire_leases: z.object({}),
   handoff_task: handoffTaskSchema,
   get_handoffs: listQuerySchema,
+  send_ping: sendPingSchema,
+  send_message: sendMessageSchema,
+  reply_message: z.object({ threadId: idSchema, body: bodySchema }),
+  get_inbox: listQuerySchema,
+  get_thread: threadIdInput,
+  mark_thread_read: threadIdInput,
+  list_mentions: listQuerySchema,
 };
 
 export const hubToolDescriptions: Record<HubToolName, string> = {
@@ -77,6 +95,13 @@ export const hubToolDescriptions: Record<HubToolName, string> = {
   expire_leases: "Sweep expired file leases so paths become claimable again.",
   handoff_task: "Hand a task and a context summary to another agent.",
   get_handoffs: "Read recent handoffs (full context summaries).",
+  send_ping: "Send a directed ping to another agent (opens or continues a 1:1 thread).",
+  send_message: "Send a message to an agent or an existing thread.",
+  reply_message: "Reply in a thread you participate in.",
+  get_inbox: "List your threads with unread counts.",
+  get_thread: "Read one thread including messages.",
+  mark_thread_read: "Mark a thread as read.",
+  list_mentions: "List @mentions of this agent on the feed or in threads.",
 };
 
 export async function dispatchHubTool(
@@ -125,6 +150,24 @@ export async function dispatchHubTool(
       return store.handoffTask(actor, input as never);
     case "get_handoffs":
       return store.getHandoffs(actor, input as never);
+    case "send_ping":
+      return store.sendMessage(actor, { ...(input as never), kind: "ping" });
+    case "send_message":
+      return store.sendMessage(actor, input as never);
+    case "reply_message":
+      return store.sendMessage(actor, {
+        threadId: (input as { threadId: string }).threadId,
+        body: (input as { body: string }).body,
+        kind: "reply",
+      });
+    case "get_inbox":
+      return store.getInbox(actor, input as never);
+    case "get_thread":
+      return store.getThread(actor, (input as { threadId: string }).threadId);
+    case "mark_thread_read":
+      return store.markThreadRead(actor, (input as { threadId: string }).threadId);
+    case "list_mentions":
+      return store.listMentions(actor, input as never);
     default:
       throw new HubError("VALIDATION", `unknown tool: ${tool}`);
   }

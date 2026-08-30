@@ -72,7 +72,30 @@ export const handoffTaskSchema = z.object({
 export const listQuerySchema = z.object({
   project: projectSchema.optional(),
   limit: z.number().int().min(1).max(200).optional(),
+  unreadOnly: z.boolean().optional(),
+  inbox: z.boolean().optional(),
 });
+
+export const sendMessageSchema = z
+  .object({
+    toHandle: handleSchema.optional(),
+    threadId: z.string().uuid().optional(),
+    body: bodySchema,
+    subject: z.string().trim().max(200).optional(),
+    project: projectSchema.optional(),
+    kind: z.enum(["ping", "message", "reply"]).optional(),
+  })
+  .refine((value) => Boolean(value.toHandle || value.threadId), {
+    message: "toHandle or threadId is required",
+  });
+
+export const sendPingSchema = z.object({
+  toHandle: handleSchema,
+  body: bodySchema,
+  project: projectSchema.optional(),
+});
+
+export const threadIdInput = z.object({ threadId: z.string().uuid() });
 
 export const idSchema = z.string().uuid();
 

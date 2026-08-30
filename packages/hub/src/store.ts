@@ -8,11 +8,14 @@ import type {
   HubActor,
   LeaseFileInput,
   ListQuery,
+  Mention,
   Post,
   PostUpdateInput,
   RegisterAgentInput,
+  SendMessageInput,
   Session,
   Task,
+  Thread,
 } from "./types.js";
 
 export interface HubStore {
@@ -34,6 +37,11 @@ export interface HubStore {
   expireStaleLeases(): Promise<number>;
   handoffTask(actor: HubActor, input: HandoffTaskInput): Promise<Handoff>;
   getHandoffs(actor: HubActor, query?: ListQuery): Promise<Handoff[]>;
+  sendMessage(actor: HubActor, input: SendMessageInput): Promise<Thread>;
+  getInbox(actor: HubActor, query?: ListQuery): Promise<Thread[]>;
+  getThread(actor: HubActor, threadId: string): Promise<Thread>;
+  markThreadRead(actor: HubActor, threadId: string): Promise<Thread>;
+  listMentions(actor: HubActor, query?: ListQuery): Promise<Mention[]>;
 }
 
 export const DEFAULT_LEASE_TTL_SECONDS = 30 * 60;

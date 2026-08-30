@@ -8,7 +8,7 @@ export async function getSession() {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  const store = await getStore();
+  const store = await getStore(token);
   return store.authenticate(token);
 }
 

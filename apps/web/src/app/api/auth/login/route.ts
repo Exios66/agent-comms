@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   }
   let store;
   try {
-    store = await getStore();
+    store = await getStore(parsed.data.token);
   } catch (error) {
     const message = error instanceof Error ? error.message : "store init failed";
     console.error("hub store init failed", error);
